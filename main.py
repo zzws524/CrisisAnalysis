@@ -32,15 +32,27 @@ def parseCsvFile(fileName):
     totalColCnt=len(myLines[0].strip().split(','))
 
     dataRowDict={};
-    dataColDict={};
-    for i in range(1,len(myLines)): #i is the row number -1
+    for i in range(1,totalRowCnt): #i is the row number -1
         tmpDict={}
         tmpDict['country']=myLines[i].strip().split(',')[0]
         tmpDataList=[]
         for j in range(1,len(myLines[i].strip().split(','))):
             tmpDataList.append(myLines[i].strip().split(',')[j])
         tmpDict['data']=tmpDataList
-        dataRowDict[i+1]=tmpDict  #dataRowDict[0]->{'country':'AD','data':[0,0,...]}
+        dataRowDict[i+1]=tmpDict  #dataRowDict[2]->{'country':'AD','data':[0,0,...]}
+
+    dataColDict={};
+    for i in range(1,totalColCnt): #i is the col number -1
+        tmpDict={}
+        tmpDict['country']=myLines[0].strip().split(',')[i]
+        tmpDataList=[]
+        for j in range(2,totalColCnt+1):
+            tmpDataList.append(dataRowDict[j]['data'][i-1])
+        tmpDict['data']=tmpDataList
+        dataColDict[i+1]=tmpDict
+    logger.debug(dataColDict[243]['country'])
+    logger.debug(dataColDict[243]['data'])
+
 
 
 if __name__=='__main__':
