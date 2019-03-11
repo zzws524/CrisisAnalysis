@@ -2,18 +2,20 @@ import os
 import logging
 from ziwenLog import myLogConfig
 
-#######Configuration items are here############
+##Please close result.csv and DataProcess.log before you run this script.##
+
+##################Configuration items are here##############################
 csvFileNeedToBeParsed='./Tables/ds07-Table 1.csv'
 lostRatio=0.8
 crisisThreshold=0.05
 firstCrisisCountry=['AN']
-##############################################
+############################################################################
 
 
 
 
 
-######Don't change contents below#############
+##################Don't change contents below###############################
 def parseCsvFile(fileName):
     with open(fileName,'r') as f:
         myLines=f.readlines()
@@ -61,11 +63,12 @@ def parseCsvFile(fileName):
 
 
 
-def analyzeAffectedCountry(roundNum,thisRoundCrisisCountries,lastRoundAffectedCountries,dataRowDict,dataColDict):
+def analyzeAffectedCountry(roundNum,thisRoundCrisisCountries,allAffectedCountriesTillLastRound,culmulativeLossPerCountry,dataRowDict,dataColDict):
+    logger.info('------------------------------------------------')
     logger.info('This is %s round crisis simulation'%str(roundNum))
 
     #calculate loss first
-    nextRoundCrisisCountries=[]
+    newlyAffectedCountries=[]
     totalLossForAllNewCrisisCountries=[]
     for newCrisis in thisRoundCrisisCountries:
         logger.debug('Now crisis would hit %s'%newCrisis)
@@ -73,31 +76,51 @@ def analyzeAffectedCountry(roundNum,thisRoundCrisisCountries,lastRoundAffectedCo
             if dataColDict[colNum]['country']==newCrisis:
                 logger.debug("Find country %s in col %s"%(newCrisis,colNum))
                 tmpOneColLoss=[round(x*lostRatio,2) for x in dataColDict[colNum]['data']]
-                logger.debug('Loss for country %s (one column * lossRation) is:'%newCrisis)
+                logger.debug('Loss caused by country %s (one column * lossRation) is:'%newCrisis)
                 logger.debug(tmpOneColLoss)
                 if len(totalLossForAllNewCrisisCountries)==0:
                     totalLossForAllNewCrisisCountries=tmpOneColLoss
                 else:
                     totalLossForAllNewCrisisCountries=[round(x+y,2) for x,y in zip(totalLossForAllNewCrisisCountries, tmpOneColLoss)]
-    logger.debug('Total loss for all latest countries in crisis is:')
-    logger.debug(totalLossForAllNewCrisisCountries)
 
-    #check threshold for all other contries,exclude lastRoundAffactedCountries
+    #check threshold for all other contries. For each row,compare 'totalLossForAllNewCrisisCountries+culmulativeLossPerCountry' with 'threshold'
+    if (len(culmulativeLossPerCountry)==0):
+        culmulativeLossPerCountry=totalLossForAllNewCrisisCountries
+    else:
+        culmulativeLossPerCountry=[x+y for (x,y) in zip(totalLossForAllNewCrisisCountries,culmulativeLossPerCountry)]
+
     for rowNum in range(2,len(dataRowDict.keys())+2):
-        if dataRowDict[rowNum]['country'] not in lastRoundAffectedCountries:
+        if dataRowDict[rowNum]['country'] not in allAffectedCountriesTillLastRound:
             tmpRowThreshold=round(sum(dataRowDict[rowNum]['data'])*crisisThreshold,2)
-            if totalLossForAllNewCrisisCountries[rowNum-2]>tmpRowThreshold:
+            if culmulativeLossPerCountry[rowNum-2]>tmpRowThreshold:
                 logger.debug('Another country was impacted (row %s):%s'%(str(rowNum),dataRowDict[rowNum]['country']))
                 logger.debug('Lost %s is greater than %s'%(str(totalLossForAllNewCrisisCountries[rowNum-2]),str(tmpRowThreshold)))
-                nextRoundCrisisCountries.append(dataRowDict[rowNum]['country'])
+                newlyAffectedCountries.append(dataRowDict[rowNum]['country'])
 
     #summary for this round
     logger.info('Summary of round %s :'%roundNum)
-    if len(nextRoundCrisisCountries)>0:
-        logger.info('After this round, %s was/were impacted'%nextRoundCrisisCountries)
+    logger.info('After this round, %s was/were newly impacted'%newlyAffectedCountries)
+    logger.debug('So far, total loss per country is:')
+    logger.debug(culmulativeLossPerCountry)
+    with open('./result.csv','a') as f:
+        f.write('Loss Added In Round '+str(roundNum)+',')
+        for colNum in range(2,len(dataColDict.keys())+2):
+            f.write(str(totalLossForAllNewCrisisCountries[colNum-2])+',')
+        f.write('\n')
+        f.write('Total Loss After Round'+str(roundNum)+',')
+        for colNum in range(2,len(dataColDict.keys())+2):
+            f.write(str(round(culmulativeLossPerCountry[colNum-2],2))+',')
+        f.write('\n')
+        f.write('Affected after Round '+str(roundNum)+',')
+        for colNum in range(2,len(dataColDict.keys())+2):
+            if(dataColDict[colNum]['country'] in allAffectedCountriesTillLastRound) or (dataColDict[colNum]['country'] in newlyAffectedCountries):
+                f.write('Yes,')
+            else:
+                f.write('No,')
+        f.write('\n')
 
 
-    return nextRoundCrisisCountries
+    return (newlyAffectedCountries,culmulativeLossPerCountry)
 
 
 
@@ -109,14 +132,23 @@ if __name__=='__main__':
 
 
     (dataRowDict,dataColDict)=parseCsvFile(csvFileNeedToBeParsed)
+    with open('./result.csv','w') as f:
+        f.write('Country,')
+        for i in range(2,len(dataColDict.keys())+2):
+            f.write(dataColDict[i]['country']+',')
+        f.write('\n')
 
-    allAffectedCountriesFromPreviousRounds=firstCrisisCountry;
-    nextRoundCrisisCountries=firstCrisisCountry;
+    culmulativeLossPerCountry=[]
+    allAffectedCountriesSoFar=firstCrisisCountry;
+    newlyAffectedCountries=firstCrisisCountry;
+
     for i in range(1,4):
-        thisRoundCrisisCountries=nextRoundCrisisCountries
-        nextRoundCrisisCountries=analyzeAffectedCountry(i,thisRoundCrisisCountries,allAffectedCountriesFromPreviousRounds,dataRowDict,dataColDict)
-        allAffectedCountriesFromPreviousRounds.append(thisRoundCrisisCountries)
-        if len(nextRoundCrisisCountries)==0:
+        thisRoundCrisisCountries=newlyAffectedCountries
+        thisRoundCulmulativeLossPerCountry=culmulativeLossPerCountry
+        lastRoundAllAffectedCountries=allAffectedCountriesSoFar
+        (newlyAffectedCountries,culmulativeLossPerCountry)=analyzeAffectedCountry(i,thisRoundCrisisCountries,lastRoundAllAffectedCountries,thisRoundCulmulativeLossPerCountry,dataRowDict,dataColDict)
+        allAffectedCountriesSoFar=lastRoundAllAffectedCountries+newlyAffectedCountries
+        if len(newlyAffectedCountries)==0:
             logger.info('No more countries were impacted any more.So stop...')
             break
 
